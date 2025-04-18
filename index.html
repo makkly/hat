@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Virtual Hat Try-On</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    #controls { position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(255,255,255,0.8); padding: 10px; border-radius: 10px; }
+    label { display: block; margin-top: 5px; }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <label>Scale: <input type="range" id="scaleSlider" min="0.1" max="3" step="0.01" value="1"></label>
+    <label>Y Offset: <input type="range" id="ySlider" min="-1" max="1" step="0.01" value="0"></label>
+    <label>Z Offset: <input type="range" id="zSlider" min="-1" max="1" step="0.01" value="0"></label>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.148.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.148.0/examples/js/loaders/GLTFLoader.js"></script>
+
+  <script>
+    let scene, camera, renderer, hatModel;
+    let videoElement = document.createElement('video');
+    let yOffset = 0, zOffset = 0, scaleValue = 1;
+
+    async function init() {
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      const light = new THREE.HemisphereLight(0xffffff, 0x444444);
+      light.position.set(0, 20, 0);
+      scene.add(light);
+
+      camera.position.z = 2;
+
+      const loader = new THREE.GLTFLoader();
+      loader.load("tripo_hat.glb", function(gltf) {
+        hatModel = gltf.scene;
+        hatModel.scale.set(scaleValue, scaleValue, scaleValue);
+        scene.add(hatModel);
+      });
+
+      const faceMesh = new FaceMesh({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
+      faceMesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+      faceMesh.onResults(onResults);
+
+      const cameraUtils = new Camera(videoElement, {
+        onFrame: async () => {
+          await faceMesh.send({image: videoElement});
+        },
+        width: 640,
+        height: 480
+      });
+      cameraUtils.start();
+    }
+
+    function onResults(results) {
+      if (!hatModel || !results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) return;
+      const landmarks = results.multiFaceLandmarks[0];
+
+      // Use forehead landmark (10 or 151 for head top)
+      const top = landmarks[10];
+      hatModel.position.set(top.x - 0.5, -top.y + 0.5 + yOffset, -top.z + zOffset);
+      hatModel.scale.set(scaleValue, scaleValue, scaleValue);
+    }
+
+    document.getElementById('scaleSlider').addEventListener('input', e => scaleValue = parseFloat(e.target.value));
+    document.getElementById('ySlider').addEventListener('input', e => yOffset = parseFloat(e.target.value));
+    document.getElementById('zSlider').addEventListener('input', e => zOffset = parseFloat(e.target.value));
+
+    function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    }
+
+    init();
+    animate();
+  </script>
+</body>
+</html>
